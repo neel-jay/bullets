@@ -20,8 +20,15 @@ openBtn.onclick = () => chrome.runtime.openOptionsPage();
 sumBtn.onclick = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
-  if (!tab.url?.includes("youtube.com/watch")) {
-    statusEl.textContent = "Open a youtube.com/watch video first";
+  const url = tab.url || "";
+  const hasVideo =
+    /youtube\.com\/watch/i.test(url) ||
+    /youtube\.com\/shorts\//i.test(url) ||
+    /youtube\.com\/live\//i.test(url) ||
+    /youtube\.com\/embed\//i.test(url) ||
+    /youtu\.be\//i.test(url);
+  if (!hasVideo) {
+    statusEl.textContent = "Open a YouTube video first (watch, Shorts, or live)";
     statusEl.className = "warn";
     return;
   }
