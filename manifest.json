@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Summarizer - DeepSeek",
+  "version": "1.8.19",
+  "description": "Right-click any YouTube thumbnail → AI Summary (clean professional) via DeepSeek",
+  "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://api.deepseek.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "YouTube Summarizer",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
