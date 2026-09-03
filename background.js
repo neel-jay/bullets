@@ -1,33 +1,37 @@
 // background.js - service worker
 const MENU_ID = "yt-summarize-deepseek";
 
+// Chrome contextMenus.create does not support `icons` (Firefox-only). Passing it
+// throws, and the old fallback then created a menu with no documentUrlPatterns —
+// so "AI Summary" appeared on every website.
+let _creatingMenus = false;
 function createMenus() {
+  if (_creatingMenus) return;
+  _creatingMenus = true;
   chrome.contextMenus.removeAll(() => {
-    // Single menu that appears on any YouTube page, on links/images/videos/pages
-    // We filter by videoId in onClicked, so showing extra is okay.
-    // targetUrlPatterns restricts link/image/video to YouTube watch/shorts/youtu.be
+    const base = {
+      id: MENU_ID,
+      title: "AI Summary",
+      contexts: ["link", "image", "video", "page", "frame"]
+    };
+    const youtubePatterns = [
+      "*://*.youtube.com/*",
+      "*://youtube.com/*",
+      "*://*.youtu.be/*",
+      "*://youtu.be/*"
+    ];
     try {
       chrome.contextMenus.create({
-        id: MENU_ID,
-        title: "AI Summary",
-        contexts: ["link", "image", "video", "page", "frame"],
-        documentUrlPatterns: ["*://*.youtube.com/*", "*://*.youtu.be/*"],
-        icons: {
-          "16": "icons/icon16.png",
-          "32": "icons/icon32.png"
-        }
+        ...base,
+        documentUrlPatterns: youtubePatterns
       });
     } catch (e) {
-      // Fallback without documentUrlPatterns / icons (older Chrome)
       try {
         chrome.contextMenus.create({
           id: MENU_ID,
           title: "AI Summary",
           contexts: ["link", "image", "video", "page"],
-          icons: {
-            "16": "icons/icon16.png",
-            "32": "icons/icon32.png"
-          }
+          documentUrlPatterns: youtubePatterns
         });
       } catch {
         chrome.contextMenus.create({
@@ -37,6 +41,7 @@ function createMenus() {
         });
       }
     }
+    _creatingMenus = false;
   });
 }
 
@@ -96,7 +101,7 @@ async function handleSummarize(tabId, videoId, sourceUrl) {
     const data = await fetchTranscriptWithFallback(tabId, videoId);
     if (!data || !data.transcript || data.transcript.trim().length < 20) throw new Error("Transcript empty or unavailable");
     const style = summaryStyle || "auto";
-    const meta = { title: data.title, duration: data.durationSeconds, channel: data.channel, segments: data.segments || [] };
+    const meta = { title: data.title, duration: data.durationSeconds, channel: data.channel, segments: data.segments || [], videoId };
     if (showTranscript) meta.transcript = data.transcript.slice(0, 8000);
 
     // progress helper -> pushes updates to reader so 10-min wait feels live, not stuck
@@ -139,7 +144,18 @@ async function handleSummarize(tabId, videoId, sourceUrl) {
     }
     // --- CACHE WRITE ---
     try {
-      const entry = { summary, pages, meta, ts: Date.now(), mode, style };
+      // Keep full transcript on the entry (not only meta.transcript when
+      // "show transcript" is on) so Ask-this-video can reuse it.
+      const entry = {
+        summary,
+        pages,
+        meta,
+        transcript: data.transcript,
+        videoId,
+        ts: Date.now(),
+        mode,
+        style
+      };
       await chrome.storage.local.set({ [cacheKey]: entry });
       // also prune old cache entries to avoid quota (keep last 30)
       try { await pruneCache(30); } catch {}
@@ -566,9 +582,12 @@ function chunkTranscript(text, maxChunkChars = 60000) {
     }
     const chunk = text.slice(pos, end).trim();
     if (chunk.length > 20) chunks.push(chunk);
-    pos = end;
-    // avoid infinite loop
-    if (pos === 0 || chunks.length > 30) break;
+    if (end <= pos) {
+      pos += maxChunkChars || 1;
+    } else {
+      pos = end;
+    }
+    if (chunks.length > 30) break;
   }
   return chunks.length ? chunks : [text];
 }
@@ -988,13 +1007,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!transcript || transcript.length < 20) {
           try {
             const all = await chrome.storage.local.get(null);
-            const keys = Object.keys(all).filter(k=>k.includes(msg.videoId));
+            const keys = Object.keys(all).filter(k => k.startsWith("yt_sum_cache_") && msg.videoId && k.includes(msg.videoId));
+            let best = "";
             for (const k of keys) {
               const v = all[k];
-              if (v?.transcript && v.transcript.length > 20) { transcript = v.transcript; break; }
-              if (v?.meta?.transcript && v.meta.transcript.length > 20) { transcript = v.meta.transcript; break; }
-              // also check stored transcript in meta.segments? fallback to fetching
+              const cand = (v?.transcript && v.transcript.length > 20 && v.transcript)
+                || (v?.meta?.transcript && v.meta.transcript.length > 20 && v.meta.transcript)
+                || "";
+              if (cand.length > best.length) best = cand;
             }
+            if (best.length > 20) transcript = best;
             if (!transcript || transcript.length < 20) {
               const tabId = sender.tab?.id;
               if (tabId) {

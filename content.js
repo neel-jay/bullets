@@ -487,10 +487,9 @@
       }
     });
 
-    // Single-panel drag: subtle handle + whole modal background (keeps resize intact)
+    // Single-panel drag: whole modal (handle clicks are included). Do not
+    // attach twice — each call adds document mousemove/mouseup listeners.
     const modal = overlay.querySelector("#yt-summarizer-modal");
-    const dragHandle = overlay.querySelector("#yt-sum-drag-handle");
-    if (dragHandle) makeDraggable(modal, dragHandle);
     makeDraggable(modal, modal);
     makeResizable(modal);
 
@@ -947,6 +946,7 @@
   }
   function initPersistentOrb() {
     const orb = ensureSiriOrb();
+    const firstInit = !window.__ytSumOrbListenersBound;
     // Try embedded first, fallback to fixed gap
     const embedded = tryEmbedOrbInMasthead();
     if (!embedded) {
@@ -971,8 +971,16 @@
         mast._ytOrbObserver = obs;
       }
     } catch {}
-    document.addEventListener("fullscreenchange", updateOrbFullscreenVisibility);
-    document.addEventListener("webkitfullscreenchange", updateOrbFullscreenVisibility);
+    if (firstInit) {
+      window.__ytSumOrbListenersBound = true;
+      document.addEventListener("fullscreenchange", updateOrbFullscreenVisibility);
+      document.addEventListener("webkitfullscreenchange", updateOrbFullscreenVisibility);
+      window.addEventListener("yt-navigate-finish", () => setTimeout(() => {
+        const o = document.getElementById("yt-sum-siri-orb");
+        if (!o) return;
+        tryEmbedOrbInMasthead() || positionOrbBetweenLogoAndSearch(o);
+      }, 500));
+    }
     // Also watch YT's fullscreen attribute
     try {
       const watch = document.querySelector("ytd-watch-flexy, #movie_player");
@@ -984,8 +992,6 @@
       }
     } catch {}
     updateOrbFullscreenVisibility();
-    // Re-try embed on YouTube SPA navigation
-    window.addEventListener("yt-navigate-finish", () => setTimeout(() => { tryEmbedOrbInMasthead() || positionOrbBetweenLogoAndSearch(orb); }, 500));
   }
 
   function hide() {
@@ -1790,7 +1796,7 @@
       const t = orb.querySelector(".yt-sum-orb-text strong");
       const s = orb.querySelector(".yt-sum-orb-text span");
       if (t) t.textContent = "Error";
-      if (s) s.textContent = error.slice(0, 32);
+      if (s) s.textContent = String(error || "").slice(0, 32);
       setTimeout(() => setOrbIdle(), 2500);
     }
     const pill = document.getElementById("yt-sum-loading-pill");

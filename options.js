@@ -103,6 +103,11 @@ toggle.onclick = () => {
 
 saveBtn.onclick = async () => {
   await saveLocalSettings(true);
+  const provider = providerSel ? providerSel.value : "deepseek";
+  if (provider === "local") {
+    showStatus("Local AI settings saved ✓ — API key not required", "ok");
+    return;
+  }
   const key = input.value.trim();
   if (!key) return showStatus("Please paste API key", "err");
   if (!key.startsWith("sk-")) {
